@@ -1,9 +1,14 @@
 /**
  * Tela /admin (SPEC-125): vincular as peças do PowerPoint aos produtos de estoque.
- * Protegida por PIN (tabela showroom_config no banco). O PIN é digitado na tela e
- * enviado em cada RPC — nunca fica no bundle.
+ * Protegida por usuário + senha (guardados como hash em showroom_config no banco).
+ * A credencial é digitada na tela e enviada em cada RPC — nunca fica no bundle.
  */
 import { db } from '@/lib/supabase/db'
+
+export interface Credencial {
+  user: string
+  senha: string
+}
 
 export interface Candidato {
   codigo: number
@@ -31,6 +36,15 @@ export interface ProdutoBusca {
   valor_venda: number
 }
 
+function erroCred(msg: string): Error {
+  return new Error(/senha|usu[aá]rio|28000/i.test(msg) ? 'Usuário ou senha inválidos' : msg)
+}
+
+export async function login(c: Credencial): Promise<void> {
+  const { error } = await db.rpc('showroom_login', { p_user: c.user, p_senha: c.senha })
+  if (error) throw erroCred(error.message)
+}
+
 export async function listarImportPecas(): Promise<ImportPeca[]> {
   const { data, error } = await db
     .from('showroom_import_pecas')
@@ -50,16 +64,21 @@ export async function buscarProduto(termo: string): Promise<ProdutoBusca[]> {
   return (data ?? []) as ProdutoBusca[]
 }
 
-export async function vincular(pin: string, slide: number, codigo: number): Promise<void> {
+export async function vincular(c: Credencial, slide: number, codigo: number): Promise<void> {
   const { error } = await db.rpc('showroom_vincular_peca', {
-    p_pin: pin,
+    p_user: c.user,
+    p_senha: c.senha,
     p_slide: slide,
     p_codigo_produto: codigo,
   })
-  if (error) throw new Error(error.message.includes('PIN') ? 'PIN inválido' : error.message)
+  if (error) throw erroCred(error.message)
 }
 
-export async function desvincular(pin: string, slide: number): Promise<void> {
-  const { error } = await db.rpc('showroom_desvincular_peca', { p_pin: pin, p_slide: slide })
-  if (error) throw new Error(error.message.includes('PIN') ? 'PIN inválido' : error.message)
+export async function desvincular(c: Credencial, slide: number): Promise<void> {
+  const { error } = await db.rpc('showroom_desvincular_peca', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_slide: slide,
+  })
+  if (error) throw erroCred(error.message)
 }

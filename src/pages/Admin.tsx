@@ -9,38 +9,33 @@ import {
   buscarProduto,
   desvincular,
   listarImportPecas,
+  login,
   vincular,
+  type Credencial,
   type ImportPeca,
   type ProdutoBusca,
 } from '@/services/curadoria'
 
-const PIN_KEY = 'showroom_admin_pin'
+const CRED_KEY = 'showroom_admin_cred'
 
-function useAdminPin(): [string, (v: string) => void, () => void] {
-  const [pin, setPinState] = useState<string>(() => {
-    try {
-      return sessionStorage.getItem(PIN_KEY) ?? ''
-    } catch {
-      return ''
-    }
-  })
-  const setPin = (v: string) => {
-    try {
-      sessionStorage.setItem(PIN_KEY, v)
-    } catch {
-      /* ignore */
-    }
-    setPinState(v)
+function lerCred(): Credencial | null {
+  try {
+    const raw = sessionStorage.getItem(CRED_KEY)
+    if (!raw) return null
+    const c = JSON.parse(raw) as Credencial
+    return c.user && c.senha ? c : null
+  } catch {
+    return null
   }
-  const clearPin = () => {
-    try {
-      sessionStorage.removeItem(PIN_KEY)
-    } catch {
-      /* ignore */
-    }
-    setPinState('')
+}
+
+function gravarCred(c: Credencial | null) {
+  try {
+    if (c) sessionStorage.setItem(CRED_KEY, JSON.stringify(c))
+    else sessionStorage.removeItem(CRED_KEY)
+  } catch {
+    /* ignore */
   }
-  return [pin, setPin, clearPin]
 }
 
 function Thumb({ url, alt }: { url: string; alt: string }) {
@@ -122,12 +117,74 @@ function BuscaProduto({ onEscolher }: { onEscolher: (cod: number, nome: string) 
   )
 }
 
+function LoginForm({ onOk }: { onOk: (c: Credencial) => void }) {
+  const [user, setUser] = useState('')
+  const [senha, setSenha] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [entrando, setEntrando] = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user.trim() || !senha) return
+    setEntrando(true)
+    setErro(null)
+    const c = { user: user.trim(), senha }
+    try {
+      await login(c)
+      onOk(c)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha no login')
+    } finally {
+      setEntrando(false)
+    }
+  }
+
+  return (
+    <div className="mx-auto mt-16 max-w-sm">
+      <h1 className="text-lg font-semibold">Curadoria do showroom</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Entre para vincular as peças do PowerPoint aos produtos.
+      </p>
+      <form className="mt-4 space-y-2" onSubmit={submit}>
+        <Input
+          value={user}
+          onChange={(e) => setUser(e.target.value)}
+          placeholder="Usuário"
+          autoFocus
+          autoComplete="username"
+        />
+        <Input
+          type="password"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          placeholder="Senha"
+          autoComplete="current-password"
+        />
+        {erro && <p className="text-sm text-destructive">{erro}</p>}
+        <Button type="submit" className="w-full" disabled={entrando}>
+          {entrando ? 'Entrando…' : 'Entrar'}
+        </Button>
+      </form>
+    </div>
+  )
+}
+
 export default function Admin() {
-  const [pin, setPin, clearPin] = useAdminPin()
-  const [pinInput, setPinInput] = useState('')
+  const [cred, setCred] = useState<Credencial | null>(() => lerCred())
   const [pecas, setPecas] = useState<ImportPeca[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<number | null>(null)
+
+  const aoEntrar = useCallback((c: Credencial) => {
+    gravarCred(c)
+    setCred(c)
+  }, [])
+
+  const sair = useCallback(() => {
+    gravarCred(null)
+    setCred(null)
+    setPecas(null)
+  }, [])
 
   const carregar = useCallback(() => {
     listarImportPecas()
@@ -136,8 +193,8 @@ export default function Admin() {
   }, [])
 
   useEffect(() => {
-    carregar()
-  }, [carregar])
+    if (cred) carregar()
+  }, [cred, carregar])
 
   const { aVincular, vinculadas } = useMemo(() => {
     const lista = pecas ?? []
@@ -148,13 +205,10 @@ export default function Admin() {
   }, [pecas])
 
   async function acaoVincular(slide: number, codigo: number, nome: string) {
-    if (!pin) {
-      toast.error('Informe o PIN primeiro')
-      return
-    }
+    if (!cred) return
     setOcupado(slide)
     try {
-      await vincular(pin, slide, codigo)
+      await vincular(cred, slide, codigo)
       toast.success(`Peça ${slide} → ${nome}`)
       setPecas((atual) =>
         (atual ?? []).map((p) =>
@@ -166,17 +220,17 @@ export default function Admin() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro'
       toast.error(msg)
-      if (msg.includes('PIN')) clearPin()
+      if (/senha|usu[aá]rio/i.test(msg)) sair()
     } finally {
       setOcupado(null)
     }
   }
 
   async function acaoDesvincular(slide: number) {
-    if (!pin) return
+    if (!cred) return
     setOcupado(slide)
     try {
-      await desvincular(pin, slide)
+      await desvincular(cred, slide)
       toast.success(`Peça ${slide} desvinculada`)
       setPecas((atual) =>
         (atual ?? []).map((p) =>
@@ -190,31 +244,8 @@ export default function Admin() {
     }
   }
 
-  if (!pin) {
-    return (
-      <div className="mx-auto mt-16 max-w-sm">
-        <h1 className="text-lg font-semibold">Curadoria do showroom</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Informe o PIN para vincular as peças do PowerPoint aos produtos.
-        </p>
-        <form
-          className="mt-4 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (pinInput.trim()) setPin(pinInput.trim())
-          }}
-        >
-          <Input
-            type="password"
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value)}
-            placeholder="PIN"
-            autoFocus
-          />
-          <Button type="submit">Entrar</Button>
-        </form>
-      </div>
-    )
+  if (!cred) {
+    return <LoginForm onOk={aoEntrar} />
   }
 
   return (
@@ -226,7 +257,7 @@ export default function Admin() {
             {pecas ? `${vinculadas.length} de ${pecas.length} peças vinculadas` : 'Carregando…'}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={clearPin}>
+        <Button variant="ghost" size="sm" onClick={sair}>
           Sair
         </Button>
       </div>
