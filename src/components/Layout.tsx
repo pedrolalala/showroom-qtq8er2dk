@@ -52,6 +52,12 @@ export default function Layout() {
           <span className="mt-2 text-xs">
             Disponibilidade e preços sujeitos a alteração. Peças de pronta entrega no showroom.
           </span>
+          <Link
+            to="/admin"
+            className="mt-1 text-xs text-muted-foreground/60 hover:text-foreground hover:underline"
+          >
+            Curadoria (equipe)
+          </Link>
         </div>
       </footer>
     </div>
