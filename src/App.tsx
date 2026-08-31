@@ -1,14 +1,15 @@
-/* Main App Component - Handles routing (using react-router-dom), query client and other providers - use this file to add all routes */
+/* Main App Component - Handles routing (using react-router-dom) and providers */
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import Index from './pages/Index'
-import NotFound from './pages/NotFound'
 import Layout from './components/Layout'
+import Vitrine from './pages/Vitrine'
+import PecaDetalhe from './pages/PecaDetalhe'
+import Showroom from './pages/Showroom'
+import NotFound from './pages/NotFound'
 
-// ONLY IMPORT AND RENDER WORKING PAGES, NEVER ADD PLACEHOLDER COMPONENTS OR PAGES IN THIS FILE
-// AVOID REMOVING ANY CONTEXT PROVIDERS FROM THIS FILE (e.g. TooltipProvider, Toaster, Sonner)
+// Site publico (SPEC-125): sem AuthProvider, sem rota protegida, sem menu entre sistemas.
 
 const App = () => (
   <BrowserRouter>
@@ -17,8 +18,9 @@ const App = () => (
       <Sonner />
       <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES MUST BE ADDED HERE */}
+          <Route path="/" element={<Vitrine />} />
+          <Route path="/peca/:codigo" element={<PecaDetalhe />} />
+          <Route path="/showroom" element={<Showroom />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
