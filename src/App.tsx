@@ -7,6 +7,7 @@ import Layout from './components/Layout'
 import Vitrine from './pages/Vitrine'
 import PecaDetalhe from './pages/PecaDetalhe'
 import Showroom from './pages/Showroom'
+import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
 
 // Site publico (SPEC-125): sem AuthProvider, sem rota protegida, sem menu entre sistemas.
@@ -21,6 +22,8 @@ const App = () => (
           <Route path="/" element={<Vitrine />} />
           <Route path="/peca/:codigo" element={<PecaDetalhe />} />
           <Route path="/showroom" element={<Showroom />} />
+          {/* Curadoria interna (não listada no menu), protegida por PIN */}
+          <Route path="/admin" element={<Admin />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
