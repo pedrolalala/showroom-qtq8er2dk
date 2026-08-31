@@ -5,7 +5,7 @@
  * `ativo AND imagem_showroom_url IS NOT NULL AND estoque_showroom > 0`.
  * Nenhuma escrita, nenhum login. Chave anonima (VITE_SUPABASE_PUBLISHABLE_KEY).
  */
-import { supabase } from '@/lib/supabase/client'
+import { db } from '@/lib/supabase/db'
 
 export const VIEW = 'vw_showroom_publico'
 
@@ -64,7 +64,7 @@ export async function listarPecas(
     tamanhoPagina = 24,
   } = filtros
 
-  let q = supabase.from(VIEW).select(COLS, { count: 'exact' })
+  let q = db.from(VIEW).select(COLS, { count: 'exact' })
 
   const termo = busca.trim()
   if (termo) {
@@ -87,7 +87,7 @@ export async function listarPecas(
 }
 
 export async function obterPecaPorCodigo(codigo: number): Promise<PecaShowroom | null> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(VIEW)
     .select(COLS)
     .eq('codigo_produto', codigo)
@@ -99,7 +99,7 @@ export async function obterPecaPorCodigo(codigo: number): Promise<PecaShowroom |
 
 /** Valores distintos para os selects de filtro (dataset pequeno, dedupe no cliente). */
 export async function listarFacetas(): Promise<{ marcas: string[]; categorias: string[] }> {
-  const { data, error } = await supabase.from(VIEW).select('marca,categoria')
+  const { data, error } = await db.from(VIEW).select('marca,categoria')
   if (error) throw error
   const marcas = new Set<string>()
   const categorias = new Set<string>()
