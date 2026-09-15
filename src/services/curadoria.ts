@@ -34,6 +34,26 @@ export interface ProdutoBusca {
   marca: string | null
   estoque_showroom: number
   valor_venda: number
+  /** SPEC-148: true quando este produto já é o principal de um conjunto (peça composta). */
+  eh_principal_de_grupo: boolean
+  /** SPEC-148: código do principal quando este produto já é membro de outro conjunto. */
+  membro_de_codigo_produto: number | null
+}
+
+/** SPEC-148: membro de um conjunto, retornado por `obterComposicao`. */
+export interface MembroComposicao {
+  codigo_produto: number
+  nome: string
+  sku: string | null
+  estoque_showroom: number
+  valor_venda: number
+  quantidade: number
+}
+
+/** SPEC-148: item mandado para `definirComposicao` (substituição total da lista de membros). */
+export interface MembroComposicaoInput {
+  codigo_produto: number
+  quantidade: number
 }
 
 function erroCred(msg: string): Error {
@@ -79,6 +99,38 @@ export async function desvincular(c: Credencial, slide: number): Promise<void> {
     p_user: c.user,
     p_senha: c.senha,
     p_slide: slide,
+  })
+  if (error) throw erroCred(error.message)
+}
+
+/**
+ * SPEC-148 (Fluxo B — peça composta): lista os membros atuais de um produto principal.
+ * Sem credencial (mesmo padrão de `buscarProduto` — leitura não sensível).
+ */
+export async function obterComposicao(
+  codigoProdutoPrincipal: number,
+): Promise<MembroComposicao[]> {
+  const { data, error } = await db.rpc('showroom_obter_composicao', {
+    p_codigo_produto_principal: codigoProdutoPrincipal,
+  })
+  if (error) throw error
+  return (data ?? []) as MembroComposicao[]
+}
+
+/**
+ * SPEC-148 (Fluxo B): substituição total e idempotente da lista de membros de um principal —
+ * mandar `[]` limpa o conjunto (produto volta a ser peça avulsa).
+ */
+export async function definirComposicao(
+  c: Credencial,
+  codigoProdutoPrincipal: number,
+  membros: MembroComposicaoInput[],
+): Promise<void> {
+  const { error } = await db.rpc('showroom_definir_composicao', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_codigo_produto_principal: codigoProdutoPrincipal,
+    p_membros: membros.map((m) => ({ codigo_produto: m.codigo_produto, quantidade: m.quantidade })),
   })
   if (error) throw erroCred(error.message)
 }
