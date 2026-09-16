@@ -51,7 +51,7 @@ function BuscaProduto({ onEscolher }: { onEscolher: (cod: number, nome: string) 
         <Input
           value={termo}
           onChange={(e) => setTermo(e.target.value)}
-          placeholder="Buscar produto por código, nome, SKU…"
+          placeholder="Buscar produto por código, nome, código legado…"
           className="h-8 pl-8 text-sm"
         />
       </div>

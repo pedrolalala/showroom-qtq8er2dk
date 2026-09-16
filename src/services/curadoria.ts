@@ -44,7 +44,7 @@ export interface ProdutoBusca {
 export interface MembroComposicao {
   codigo_produto: number
   nome: string
-  sku: string | null
+  codigo_legado: number | null
   estoque_showroom: number
   valor_venda: number
   quantidade: number

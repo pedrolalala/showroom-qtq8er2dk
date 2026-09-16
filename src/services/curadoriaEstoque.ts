@@ -14,7 +14,7 @@ const BUCKET = 'showroom-lucenera'
 export interface ProdutoEstoque {
   codigo_produto: number
   nome: string
-  sku: string | null
+  codigo_legado: number | null
   referencia: string | null
   estoque_showroom: number
   imagem_showroom_url: string | null

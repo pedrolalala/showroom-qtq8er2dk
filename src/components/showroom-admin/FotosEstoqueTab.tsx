@@ -92,7 +92,7 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
           <Input
             value={termo}
             onChange={(e) => setTermo(e.target.value)}
-            placeholder="Buscar por nome, SKU, código…"
+            placeholder="Buscar por nome, código legado, código…"
             className="h-8 pl-8 text-sm"
           />
         </div>
@@ -140,10 +140,10 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                       </Badge>
                     )}
                   </div>
-                  {(p.sku || p.referencia) && (
+                  {(p.codigo_legado || p.referencia) && (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {p.sku && <>SKU {p.sku}</>}
-                      {p.sku && p.referencia && ' · '}
+                      {p.codigo_legado && <>Cód. legado {p.codigo_legado}</>}
+                      {p.codigo_legado && p.referencia && ' · '}
                       {p.referencia && <>Ref. {p.referencia}</>}
                     </p>
                   )}

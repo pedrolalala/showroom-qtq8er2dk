@@ -120,7 +120,7 @@ export function ComposicaoConjuntoModal({
       {
         codigo_produto: p.codigo_produto,
         nome: p.nome,
-        sku: null,
+        codigo_legado: null,
         estoque_showroom: p.estoque_showroom,
         valor_venda: p.valor_venda,
         quantidade: 1,
@@ -284,7 +284,7 @@ export function ComposicaoConjuntoModal({
                 <Input
                   value={termo}
                   onChange={(e) => setTermo(e.target.value)}
-                  placeholder="Buscar produto por código, nome, SKU…"
+                  placeholder="Buscar produto por código, nome, código legado…"
                   className="h-8 pl-8 text-sm"
                 />
               </div>
