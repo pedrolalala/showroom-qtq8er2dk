@@ -111,16 +111,17 @@ export default function Admin() {
         </Button>
       </div>
 
-      <Tabs defaultValue="ppt">
+      {/* SPEC-165: abre em "Peças e fotos" — é a única aba com todas as peças da vitrine. */}
+      <Tabs defaultValue="estoque">
         <TabsList>
+          <TabsTrigger value="estoque">Peças e fotos</TabsTrigger>
           <TabsTrigger value="ppt">Vincular do PPT</TabsTrigger>
-          <TabsTrigger value="estoque">Fotos do estoque</TabsTrigger>
         </TabsList>
-        <TabsContent value="ppt">
-          <PPTTab cred={cred} onAuthError={sair} />
-        </TabsContent>
         <TabsContent value="estoque">
           <FotosEstoqueTab cred={cred} onAuthError={sair} />
+        </TabsContent>
+        <TabsContent value="ppt">
+          <PPTTab cred={cred} onAuthError={sair} />
         </TabsContent>
       </Tabs>
     </div>

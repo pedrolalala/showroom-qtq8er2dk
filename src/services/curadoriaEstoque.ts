@@ -8,6 +8,7 @@
 import { supabase } from '@/lib/supabase/client'
 import { db } from '@/lib/supabase/db'
 import type { Credencial } from './curadoria'
+import { VIEW } from './showroom'
 
 const BUCKET = 'showroom-lucenera'
 
@@ -29,13 +30,23 @@ function erroCred(msg: string): Error {
   return new Error(/senha|usu[aá]rio|28000/i.test(msg) ? 'Usuário ou senha inválidos' : msg)
 }
 
-/** Lista produtos com `estoque_showroom > 0` (com ou sem foto), busca por nome/SKU/código. */
+/** Lista produtos com `estoque_showroom > 0` (com ou sem foto), busca por nome/código legado/código. */
 export async function listarProdutosEstoque(termo?: string): Promise<ProdutoEstoque[]> {
   const { data, error } = await db.rpc('showroom_listar_produtos_estoque', {
     p_termo: termo?.trim() || null,
   })
   if (error) throw error
   return (data ?? []) as ProdutoEstoque[]
+}
+
+/**
+ * SPEC-165: códigos dos produtos que aparecem hoje na página inicial (`vw_showroom_publico`),
+ * pra aba de fotos marcar/filtrar "Na vitrine" com a mesma regra do site público.
+ */
+export async function listarCodigosNaVitrine(): Promise<Set<number>> {
+  const { data, error } = await db.from(VIEW).select('codigo_produto')
+  if (error) throw error
+  return new Set((data ?? []).map((r: { codigo_produto: number }) => r.codigo_produto))
 }
 
 /**

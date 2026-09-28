@@ -2,6 +2,8 @@
  * Aba "Fotos do estoque" (SPEC-148, Fluxo A): lista produtos com `estoque_showroom > 0` e
  * permite subir/trocar a foto direto, sem depender do PowerPoint importado. Reaproveita a
  * mesma sessão/credencial da tela `/admin` (recebida via prop, já validada pelo pai).
+ * SPEC-165: filtro "Na vitrine" (mesma regra da página inicial) pra toda peça visível no site
+ * ser achada aqui.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -12,11 +14,32 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Thumb } from './Thumb'
 import { ComposicaoConjuntoModal } from './ComposicaoConjuntoModal'
-import { listarProdutosEstoque, trocarFotoProduto, type ProdutoEstoque } from '@/services/curadoriaEstoque'
+import {
+  listarCodigosNaVitrine,
+  listarProdutosEstoque,
+  trocarFotoProduto,
+  type ProdutoEstoque,
+} from '@/services/curadoriaEstoque'
 import type { Credencial } from '@/services/curadoria'
 
 const TAMANHO_MAX_BYTES = 5 * 1024 * 1024
 const TIPOS_ACEITOS = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+
+/** SPEC-165: recorte da lista — a vitrine é o que o time vê na página inicial. */
+type Filtro = 'vitrine' | 'sem-foto' | 'todos'
+
+const FILTROS: { valor: Filtro; rotulo: string }[] = [
+  { valor: 'vitrine', rotulo: 'Na vitrine' },
+  { valor: 'sem-foto', rotulo: 'Sem foto' },
+  { valor: 'todos', rotulo: 'Todos' },
+]
+
+function normalizar(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+}
 
 interface Props {
   cred: Credencial
@@ -25,16 +48,23 @@ interface Props {
 
 export function FotosEstoqueTab({ cred, onAuthError }: Props) {
   const [produtos, setProdutos] = useState<ProdutoEstoque[] | null>(null)
+  const [naVitrine, setNaVitrine] = useState<Set<number>>(new Set())
+  const [filtro, setFiltro] = useState<Filtro>('vitrine')
   const [termo, setTermo] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState<number | null>(null)
   const [composicaoAlvo, setComposicaoAlvo] = useState<ProdutoEstoque | null>(null)
   const inputsRef = useRef<Record<number, HTMLInputElement | null>>({})
 
-  const carregar = useCallback((t?: string) => {
+  // SPEC-165: carrega a lista inteira (~300 produtos) uma vez e filtra no cliente, pra busca
+  // cobrir também marca e o recorte "Na vitrine" bater com a página inicial.
+  const carregar = useCallback(() => {
     setErro(null)
-    listarProdutosEstoque(t)
-      .then(setProdutos)
+    Promise.all([listarProdutosEstoque(), listarCodigosNaVitrine()])
+      .then(([lista, codigos]) => {
+        setProdutos(lista)
+        setNaVitrine(codigos)
+      })
       .catch((e) => setErro(e instanceof Error ? e.message : 'Falha ao carregar produtos'))
   }, [])
 
@@ -42,10 +72,26 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
     carregar()
   }, [carregar])
 
-  useEffect(() => {
-    const id = setTimeout(() => carregar(termo), 300)
-    return () => clearTimeout(id)
-  }, [termo, carregar])
+  const contagens = useMemo(() => {
+    const lista = produtos ?? []
+    return {
+      vitrine: lista.filter((p) => naVitrine.has(p.codigo_produto)).length,
+      'sem-foto': lista.filter((p) => !p.imagem_showroom_url).length,
+      todos: lista.length,
+    } satisfies Record<Filtro, number>
+  }, [produtos, naVitrine])
+
+  const visiveis = useMemo(() => {
+    const t = normalizar(termo.trim())
+    return (produtos ?? []).filter((p) => {
+      if (filtro === 'vitrine' && !naVitrine.has(p.codigo_produto)) return false
+      if (filtro === 'sem-foto' && p.imagem_showroom_url) return false
+      if (!t) return true
+      return [p.nome, p.marca, p.referencia, p.codigo_produto, p.codigo_legado].some(
+        (v) => v != null && normalizar(String(v)).includes(t),
+      )
+    })
+  }, [produtos, naVitrine, filtro, termo])
 
   const atualizarProduto = useCallback((codigo: number, patch: Partial<ProdutoEstoque>) => {
     setProdutos((atual) =>
@@ -67,6 +113,9 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
     try {
       const url = await trocarFotoProduto(cred, p.codigo_produto, file)
       atualizarProduto(p.codigo_produto, { imagem_showroom_url: url })
+      listarCodigosNaVitrine()
+        .then(setNaVitrine)
+        .catch(() => undefined)
       toast.success(`Foto atualizada: ${p.nome}`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Falha no upload'
@@ -79,20 +128,34 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
     }
   }
 
-  const contagem = useMemo(() => produtos?.length ?? 0, [produtos])
+  const contagem = visiveis.length
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
-          {produtos ? `${contagem} produto${contagem === 1 ? '' : 's'} em estoque` : 'Carregando…'}
-        </p>
-        <div className="relative w-64">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {FILTROS.map((f) => (
+            <Button
+              key={f.valor}
+              type="button"
+              size="sm"
+              variant={filtro === f.valor ? 'default' : 'outline'}
+              onClick={() => setFiltro(f.valor)}
+            >
+              {f.rotulo}
+              {produtos && <span className="ml-1 opacity-70">({contagens[f.valor]})</span>}
+            </Button>
+          ))}
+          <span className="text-sm text-muted-foreground">
+            {produtos ? `${contagem} produto${contagem === 1 ? '' : 's'}` : 'Carregando…'}
+          </span>
+        </div>
+        <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={termo}
             onChange={(e) => setTermo(e.target.value)}
-            placeholder="Buscar por nome, código legado, código…"
+            placeholder="Buscar por nome, marca, código legado, código…"
             className="h-8 pl-8 text-sm"
           />
         </div>
@@ -110,7 +173,7 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
 
       {produtos && (
         <ul className="space-y-3">
-          {produtos.map((p) => {
+          {visiveis.map((p) => {
             const ehMembro = p.membro_de_codigo_produto != null
             const desabilitadoPorConjunto = ehMembro
             return (
@@ -129,6 +192,11 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                     <span className="text-xs text-muted-foreground">
                       estoque {p.estoque_showroom}
                     </span>
+                    {naVitrine.has(p.codigo_produto) && (
+                      <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
+                        Na vitrine
+                      </Badge>
+                    )}
                     {p.eh_principal_de_grupo && (
                       <Badge variant="outline" className="gap-1">
                         <Layers className="h-3 w-3" /> Conjunto
@@ -197,7 +265,7 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
               </li>
             )
           })}
-          {produtos.length === 0 && (
+          {visiveis.length === 0 && (
             <li className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
               Nenhum produto encontrado.
             </li>
@@ -213,7 +281,7 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
           codigoProdutoPrincipal={composicaoAlvo.codigo_produto}
           nomePrincipal={composicaoAlvo.nome}
           onAuthError={onAuthError}
-          onSalvo={() => carregar(termo)}
+          onSalvo={carregar}
         />
       )}
     </div>
