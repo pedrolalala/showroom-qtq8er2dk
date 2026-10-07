@@ -35,10 +35,7 @@ const FILTROS: { valor: Filtro; rotulo: string }[] = [
 ]
 
 function normalizar(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
+  return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 }
 
 interface Props {

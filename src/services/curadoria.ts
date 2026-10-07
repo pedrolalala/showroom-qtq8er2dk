@@ -107,9 +107,7 @@ export async function desvincular(c: Credencial, slide: number): Promise<void> {
  * SPEC-148 (Fluxo B — peça composta): lista os membros atuais de um produto principal.
  * Sem credencial (mesmo padrão de `buscarProduto` — leitura não sensível).
  */
-export async function obterComposicao(
-  codigoProdutoPrincipal: number,
-): Promise<MembroComposicao[]> {
+export async function obterComposicao(codigoProdutoPrincipal: number): Promise<MembroComposicao[]> {
   const { data, error } = await db.rpc('showroom_obter_composicao', {
     p_codigo_produto_principal: codigoProdutoPrincipal,
   })

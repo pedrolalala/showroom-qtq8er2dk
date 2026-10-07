@@ -55,9 +55,10 @@ export function ComposicaoConjuntoModal({
   const [carregando, setCarregando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [membros, setMembros] = useState<MembroEmEdicao[]>([])
-  const [principal, setPrincipal] = useState<{ valor_venda: number; estoque_showroom: number } | null>(
-    null,
-  )
+  const [principal, setPrincipal] = useState<{
+    valor_venda: number
+    estoque_showroom: number
+  } | null>(null)
   const [termo, setTermo] = useState('')
   const [resultados, setResultados] = useState<ProdutoBusca[]>([])
   const [buscando, setBuscando] = useState(false)
@@ -137,9 +138,7 @@ export function ComposicaoConjuntoModal({
   function alterarQuantidade(codigo: number, delta: number) {
     setMembros((atual) =>
       atual.map((m) =>
-        m.codigo_produto === codigo
-          ? { ...m, quantidade: Math.max(1, m.quantidade + delta) }
-          : m,
+        m.codigo_produto === codigo ? { ...m, quantidade: Math.max(1, m.quantidade + delta) } : m,
       ),
     )
   }
@@ -204,9 +203,9 @@ export function ComposicaoConjuntoModal({
         <DialogHeader>
           <DialogTitle>Composição de "{nomePrincipal}"</DialogTitle>
           <DialogDescription>
-            Um conjunto exibe 1 foto/nome (deste produto principal) representando vários
-            produtos de estoque vendidos juntos. O valor exibido é a soma de todos; o estoque é
-            o número de conjuntos completos possíveis.
+            Um conjunto exibe 1 foto/nome (deste produto principal) representando vários produtos de
+            estoque vendidos juntos. O valor exibido é a soma de todos; o estoque é o número de
+            conjuntos completos possíveis.
           </DialogDescription>
         </DialogHeader>
 
@@ -294,8 +293,7 @@ export function ComposicaoConjuntoModal({
                   {resultados.map((p) => {
                     const ehOProprioPrincipal = p.codigo_produto === codigoProdutoPrincipal
                     const jaNoConjuntoAtual = jaNaLista(p.codigo_produto)
-                    const ehPrincipalDeOutroGrupo =
-                      p.eh_principal_de_grupo && !ehOProprioPrincipal
+                    const ehPrincipalDeOutroGrupo = p.eh_principal_de_grupo && !ehOProprioPrincipal
                     const ehMembroDeOutroGrupo =
                       p.membro_de_codigo_produto != null &&
                       p.membro_de_codigo_produto !== codigoProdutoPrincipal
