@@ -80,22 +80,20 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
       })
   }, [cred, onAuthError])
 
-  const codigosOcultos = useMemo(() => new Set(ocultas.map((o) => o.codigo_produto)), [ocultas])
-
   async function tirarDaVitrine(codigo: number, nome: string) {
     if (
       !window.confirm(
-        `Tirar "${nome}" da vitrine? Ela some do site, mas o produto, a foto e o estoque continuam. Dá para trazer de volta em "Ocultas".`,
+        `Tirar "${nome}" do showroom? Ela some do site e das listas do /admin (vincular peça e fotos). O produto, a foto e o estoque continuam. Dá para trazer de volta em "Ocultas".`,
       )
     )
       return
     setAlterandoVitrine(codigo)
     try {
       await ocultarPeca(cred, codigo)
-      toast.success(`Tirada da vitrine: ${nome}`)
+      toast.success(`Tirada do showroom: ${nome}`)
       carregar()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Falha ao tirar da vitrine'
+      const msg = e instanceof Error ? e.message : 'Falha ao tirar do showroom'
       toast.error(msg)
       if (/senha|usu[aá]rio/i.test(msg)) onAuthError()
     } finally {
@@ -304,9 +302,6 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                         Na vitrine
                       </Badge>
                     )}
-                    {codigosOcultos.has(p.codigo_produto) && (
-                      <Badge variant="outline">Oculta</Badge>
-                    )}
                     {p.eh_principal_de_grupo && (
                       <Badge variant="outline" className="gap-1">
                         <Layers className="h-3 w-3" /> Conjunto
@@ -370,31 +365,18 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                       <Layers className="mr-1 h-3.5 w-3.5" />
                       Gerenciar composição
                     </Button>
-                    {naVitrine.has(p.codigo_produto) && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        disabled={alterandoVitrine === p.codigo_produto}
-                        onClick={() => tirarDaVitrine(p.codigo_produto, p.nome)}
-                      >
-                        <EyeOff className="mr-1 h-3.5 w-3.5" />
-                        Tirar da vitrine
-                      </Button>
-                    )}
-                    {codigosOcultos.has(p.codigo_produto) && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={alterandoVitrine === p.codigo_produto}
-                        onClick={() => voltarParaVitrine(p.codigo_produto, p.nome)}
-                      >
-                        <Eye className="mr-1 h-3.5 w-3.5" />
-                        Voltar para a vitrine
-                      </Button>
-                    )}
+                    {/* SPEC-184: vale para qualquer peça (LED, lâmpada…), não só as da vitrine. */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      disabled={alterandoVitrine === p.codigo_produto}
+                      onClick={() => tirarDaVitrine(p.codigo_produto, p.nome)}
+                    >
+                      <EyeOff className="mr-1 h-3.5 w-3.5" />
+                      Tirar do showroom
+                    </Button>
                   </div>
                 </div>
               </li>

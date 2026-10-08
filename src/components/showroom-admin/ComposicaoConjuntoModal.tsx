@@ -67,7 +67,7 @@ export function ComposicaoConjuntoModal({
     setCarregando(true)
     try {
       const [candidatosPrincipal, atuais] = await Promise.all([
-        buscarProduto(String(codigoProdutoPrincipal)),
+        buscarProduto(String(codigoProdutoPrincipal), true),
         obterComposicao(codigoProdutoPrincipal),
       ])
       const infoPrincipal = candidatosPrincipal.find(
@@ -101,7 +101,7 @@ export function ComposicaoConjuntoModal({
     }
     const id = setTimeout(() => {
       setBuscando(true)
-      buscarProduto(t)
+      buscarProduto(t, true)
         .then(setResultados)
         .catch(() => setResultados([]))
         .finally(() => setBuscando(false))

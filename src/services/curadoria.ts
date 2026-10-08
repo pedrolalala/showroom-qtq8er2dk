@@ -76,10 +76,20 @@ export async function listarImportPecas(): Promise<ImportPeca[]> {
   return (data ?? []) as ImportPeca[]
 }
 
-export async function buscarProduto(termo: string): Promise<ProdutoBusca[]> {
+/**
+ * SPEC-184: peças tiradas do showroom (LED, lâmpada…) não aparecem ao vincular peça do PPT;
+ * a montagem de conjuntos passa `incluirOcultos` para poder compor luminária + lâmpada.
+ */
+export async function buscarProduto(
+  termo: string,
+  incluirOcultos = false,
+): Promise<ProdutoBusca[]> {
   const t = termo.trim()
   if (!t) return []
-  const { data, error } = await db.rpc('showroom_buscar_produto', { p_termo: t })
+  const { data, error } = await db.rpc('showroom_buscar_produto', {
+    p_termo: t,
+    p_incluir_ocultos: incluirOcultos,
+  })
   if (error) throw error
   return (data ?? []) as ProdutoBusca[]
 }
