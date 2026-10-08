@@ -49,6 +49,44 @@ export async function listarCodigosNaVitrine(): Promise<Set<number>> {
   return new Set((data ?? []).map((r: { codigo_produto: number }) => r.codigo_produto))
 }
 
+/** SPEC-184: peça tirada da vitrine pelo /admin (produto, foto e estoque ficam intactos). */
+export interface PecaOculta {
+  codigo_produto: number
+  nome: string
+  marca: string | null
+  referencia: string | null
+  estoque_showroom: number
+  imagem_showroom_url: string | null
+  ocultado_em: string
+}
+
+export async function listarOcultas(c: Credencial): Promise<PecaOculta[]> {
+  const { data, error } = await db.rpc('showroom_listar_ocultas', {
+    p_user: c.user,
+    p_senha: c.senha,
+  })
+  if (error) throw erroCred(error.message)
+  return (data ?? []) as PecaOculta[]
+}
+
+export async function ocultarPeca(c: Credencial, codigoProduto: number): Promise<void> {
+  const { error } = await db.rpc('showroom_ocultar_peca', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_codigo_produto: codigoProduto,
+  })
+  if (error) throw erroCred(error.message)
+}
+
+export async function reexibirPeca(c: Credencial, codigoProduto: number): Promise<void> {
+  const { error } = await db.rpc('showroom_reexibir_peca', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_codigo_produto: codigoProduto,
+  })
+  if (error) throw erroCred(error.message)
+}
+
 /**
  * Passo 1 do upload: pede ao banco a liberação temporária (TTL 15 min) de um path em
  * `produtos/` para este produto. Retorna o path novo e, se houver, o path antigo (só quando

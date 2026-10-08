@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { ImagePlus, Layers, Search } from 'lucide-react'
+import { Eye, EyeOff, ImagePlus, Layers, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -16,8 +16,12 @@ import { Thumb } from './Thumb'
 import { ComposicaoConjuntoModal } from './ComposicaoConjuntoModal'
 import {
   listarCodigosNaVitrine,
+  listarOcultas,
   listarProdutosEstoque,
+  ocultarPeca,
+  reexibirPeca,
   trocarFotoProduto,
+  type PecaOculta,
   type ProdutoEstoque,
 } from '@/services/curadoriaEstoque'
 import type { Credencial } from '@/services/curadoria'
@@ -26,13 +30,16 @@ const TAMANHO_MAX_BYTES = 5 * 1024 * 1024
 const TIPOS_ACEITOS = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
 /** SPEC-165: recorte da lista — a vitrine é o que o time vê na página inicial. */
-type Filtro = 'vitrine' | 'sem-foto' | 'todos'
+type Filtro = 'vitrine' | 'sem-foto' | 'todos' | 'ocultas'
 
 const FILTROS: { valor: Filtro; rotulo: string }[] = [
   { valor: 'vitrine', rotulo: 'Na vitrine' },
   { valor: 'sem-foto', rotulo: 'Sem foto' },
   { valor: 'todos', rotulo: 'Todos' },
+  { valor: 'ocultas', rotulo: 'Ocultas' },
 ]
+
+const fmtData = (iso: string) => new Date(iso).toLocaleDateString('pt-BR')
 
 function normalizar(s: string): string {
   return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
@@ -51,19 +58,65 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState<number | null>(null)
   const [composicaoAlvo, setComposicaoAlvo] = useState<ProdutoEstoque | null>(null)
+  // SPEC-184: peças tiradas da vitrine pelo /admin (somem do site mesmo com estoque).
+  const [ocultas, setOcultas] = useState<PecaOculta[]>([])
+  const [alterandoVitrine, setAlterandoVitrine] = useState<number | null>(null)
   const inputsRef = useRef<Record<number, HTMLInputElement | null>>({})
 
   // SPEC-165: carrega a lista inteira (~300 produtos) uma vez e filtra no cliente, pra busca
   // cobrir também marca e o recorte "Na vitrine" bater com a página inicial.
   const carregar = useCallback(() => {
     setErro(null)
-    Promise.all([listarProdutosEstoque(), listarCodigosNaVitrine()])
-      .then(([lista, codigos]) => {
+    Promise.all([listarProdutosEstoque(), listarCodigosNaVitrine(), listarOcultas(cred)])
+      .then(([lista, codigos, listaOcultas]) => {
         setProdutos(lista)
         setNaVitrine(codigos)
+        setOcultas(listaOcultas)
       })
-      .catch((e) => setErro(e instanceof Error ? e.message : 'Falha ao carregar produtos'))
-  }, [])
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : 'Falha ao carregar produtos'
+        setErro(msg)
+        if (/senha|usu[aá]rio/i.test(msg)) onAuthError()
+      })
+  }, [cred, onAuthError])
+
+  const codigosOcultos = useMemo(() => new Set(ocultas.map((o) => o.codigo_produto)), [ocultas])
+
+  async function tirarDaVitrine(codigo: number, nome: string) {
+    if (
+      !window.confirm(
+        `Tirar "${nome}" da vitrine? Ela some do site, mas o produto, a foto e o estoque continuam. Dá para trazer de volta em "Ocultas".`,
+      )
+    )
+      return
+    setAlterandoVitrine(codigo)
+    try {
+      await ocultarPeca(cred, codigo)
+      toast.success(`Tirada da vitrine: ${nome}`)
+      carregar()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao tirar da vitrine'
+      toast.error(msg)
+      if (/senha|usu[aá]rio/i.test(msg)) onAuthError()
+    } finally {
+      setAlterandoVitrine(null)
+    }
+  }
+
+  async function voltarParaVitrine(codigo: number, nome: string) {
+    setAlterandoVitrine(codigo)
+    try {
+      await reexibirPeca(cred, codigo)
+      toast.success(`De volta à vitrine: ${nome}`)
+      carregar()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao trazer de volta'
+      toast.error(msg)
+      if (/senha|usu[aá]rio/i.test(msg)) onAuthError()
+    } finally {
+      setAlterandoVitrine(null)
+    }
+  }
 
   useEffect(() => {
     carregar()
@@ -75,8 +128,9 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
       vitrine: lista.filter((p) => naVitrine.has(p.codigo_produto)).length,
       'sem-foto': lista.filter((p) => !p.imagem_showroom_url).length,
       todos: lista.length,
+      ocultas: ocultas.length,
     } satisfies Record<Filtro, number>
-  }, [produtos, naVitrine])
+  }, [produtos, naVitrine, ocultas])
 
   const visiveis = useMemo(() => {
     const t = normalizar(termo.trim())
@@ -125,7 +179,17 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
     }
   }
 
-  const contagem = visiveis.length
+  const ocultasVisiveis = useMemo(() => {
+    const t = normalizar(termo.trim())
+    if (!t) return ocultas
+    return ocultas.filter((o) =>
+      [o.nome, o.marca, o.referencia, o.codigo_produto].some(
+        (v) => v != null && normalizar(String(v)).includes(t),
+      ),
+    )
+  }, [ocultas, termo])
+
+  const contagem = filtro === 'ocultas' ? ocultasVisiveis.length : visiveis.length
 
   return (
     <div>
@@ -168,7 +232,53 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
         </div>
       )}
 
-      {produtos && (
+      {produtos && filtro === 'ocultas' && (
+        <ul className="space-y-3">
+          {ocultasVisiveis.map((o) => (
+            <li
+              key={o.codigo_produto}
+              className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-start"
+            >
+              <Thumb url={o.imagem_showroom_url} alt={o.nome} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{o.nome}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    #{o.codigo_produto}
+                  </span>
+                  {o.marca && <Badge variant="secondary">{o.marca}</Badge>}
+                  <span className="text-xs text-muted-foreground">
+                    estoque {o.estoque_showroom}
+                  </span>
+                  <Badge variant="outline">Oculta desde {fmtData(o.ocultado_em)}</Badge>
+                </div>
+                {o.referencia && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">Ref. {o.referencia}</p>
+                )}
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={alterandoVitrine === o.codigo_produto}
+                    onClick={() => voltarParaVitrine(o.codigo_produto, o.nome)}
+                  >
+                    <Eye className="mr-1 h-3.5 w-3.5" />
+                    Voltar para a vitrine
+                  </Button>
+                </div>
+              </div>
+            </li>
+          ))}
+          {ocultasVisiveis.length === 0 && (
+            <li className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+              Nenhuma peça oculta.
+            </li>
+          )}
+        </ul>
+      )}
+
+      {produtos && filtro !== 'ocultas' && (
         <ul className="space-y-3">
           {visiveis.map((p) => {
             const ehMembro = p.membro_de_codigo_produto != null
@@ -193,6 +303,9 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                       <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
                         Na vitrine
                       </Badge>
+                    )}
+                    {codigosOcultos.has(p.codigo_produto) && (
+                      <Badge variant="outline">Oculta</Badge>
                     )}
                     {p.eh_principal_de_grupo && (
                       <Badge variant="outline" className="gap-1">
@@ -257,6 +370,31 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                       <Layers className="mr-1 h-3.5 w-3.5" />
                       Gerenciar composição
                     </Button>
+                    {naVitrine.has(p.codigo_produto) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={alterandoVitrine === p.codigo_produto}
+                        onClick={() => tirarDaVitrine(p.codigo_produto, p.nome)}
+                      >
+                        <EyeOff className="mr-1 h-3.5 w-3.5" />
+                        Tirar da vitrine
+                      </Button>
+                    )}
+                    {codigosOcultos.has(p.codigo_produto) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={alterandoVitrine === p.codigo_produto}
+                        onClick={() => voltarParaVitrine(p.codigo_produto, p.nome)}
+                      >
+                        <Eye className="mr-1 h-3.5 w-3.5" />
+                        Voltar para a vitrine
+                      </Button>
+                    )}
                   </div>
                 </div>
               </li>
