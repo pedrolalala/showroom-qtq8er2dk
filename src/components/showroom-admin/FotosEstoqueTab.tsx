@@ -136,7 +136,7 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
       if (filtro === 'vitrine' && !naVitrine.has(p.codigo_produto)) return false
       if (filtro === 'sem-foto' && p.imagem_showroom_url) return false
       if (!t) return true
-      return [p.nome, p.marca, p.referencia, p.codigo_produto, p.codigo_legado].some(
+      return [p.nome, p.marca, p.referencia, p.codigo_produto].some(
         (v) => v != null && normalizar(String(v)).includes(t),
       )
     })
@@ -313,12 +313,9 @@ export function FotosEstoqueTab({ cred, onAuthError }: Props) {
                       </Badge>
                     )}
                   </div>
-                  {(p.codigo_legado || p.referencia) && (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {p.codigo_legado && <>Cód. legado {p.codigo_legado}</>}
-                      {p.codigo_legado && p.referencia && ' · '}
-                      {p.referencia && <>Ref. {p.referencia}</>}
-                    </p>
+                  {/* SPEC-193 B3: "Cód. legado" era cópia do código da peça; fica só a referência. */}
+                  {p.referencia && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">Ref. {p.referencia}</p>
                   )}
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">

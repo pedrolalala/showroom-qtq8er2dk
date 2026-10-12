@@ -121,7 +121,6 @@ export function ComposicaoConjuntoModal({
       {
         codigo_produto: p.codigo_produto,
         nome: p.nome,
-        codigo_legado: null,
         estoque_showroom: p.estoque_showroom,
         valor_venda: p.valor_venda,
         quantidade: 1,
