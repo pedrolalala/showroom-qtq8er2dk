@@ -136,3 +136,27 @@ Leitura pública sempre liberada (`showroom_lucenera_public_read`, não alterada
   upload direto do client, mas as policies daquele bucket são `TO authenticated` (Supabase Auth
   de verdade) — o showroom nunca tem sessão `authenticated`, então o mesmo padrão de policy não
   funciona sem o mecanismo de `showroom_upload_grants`.
+
+## Empréstimo de peças (SPEC-219, migration 231, aplicada 22/10/2026)
+
+Registro de peças emprestadas a clientes + termo em PDF para o cliente assinar. **Só registro:
+não mexe em `produtos.estoque_showroom` nem na vitrine** (decisão do Pedro). A soma emprestada
+em aberto pode passar do estoque do showroom — a tela só avisa.
+
+- **`showroom_emprestimos`** — `numero` (sequence, exibido `EMP-0001`), `empresa_id` → `empresas`,
+  `contato_id` → `contatos` (tipo `cliente`), `cliente_snapshot jsonb` (dados do cliente no dia —
+  o termo não muda se o cadastro mudar), `data_emprestimo`, `data_prevista_devolucao`,
+  `observacoes`, `cancelado_em/cancelado_motivo`, `criado_por` (usuário do /admin).
+- **`showroom_emprestimo_itens`** — `produto_id`, snapshot de `codigo_produto/nome/referencia`,
+  `quantidade`, `valor_unitario` (= `valor_venda` no dia; é o valor integral cobrado se houver
+  dano), `situacao` (`emprestado` | `devolvido` | `devolvido_com_dano`), `data_devolucao`,
+  `descricao_dano`, `valor_dano` (padrão = integral, pode ser menor, nunca maior).
+- Status do empréstimo é **calculado** (função interna `showroom_emp_status`, sem grant):
+  `cancelado`, `em_aberto`, `atrasado` (em aberto e prazo vencido, fuso São Paulo),
+  `devolvido`, `devolvido_com_dano`.
+- Tabelas com RLS ligado, sem policy, sem grant. Tudo passa pelas RPCs `showroom_emp_*`
+  (SECURITY DEFINER, credencial do /admin, EXECUTE só para `anon` — revogado de `authenticated`):
+  `buscar_cliente`, `listar_empresas`, `em_aberto_por_peca`, `criar`, `listar`, `obter`,
+  `registrar_devolucao`, `cancelar` (só se nenhuma peça foi devolvida).
+- `contatos` tem dado pessoal: nunca ler direto daqui — só pela `showroom_emp_buscar_cliente`
+  (filtra `tipo = 'cliente'`, `ativo`, `canonical_id IS NULL`, limite 20).

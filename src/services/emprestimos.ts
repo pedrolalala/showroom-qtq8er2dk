@@ -1,0 +1,258 @@
+/**
+ * Tela /admin, aba "Empréstimos" (SPEC-219): peças emprestadas a clientes + termo em PDF.
+ * Só registro — não mexe em estoque_showroom nem na vitrine. Mesmo padrão de curadoria.ts:
+ * funções puras, credencial do /admin explícita em toda RPC (as tabelas não têm grant;
+ * dado de cliente só sai pelas RPCs showroom_emp_*).
+ */
+import { db } from '@/lib/supabase/db'
+import type { Credencial } from './curadoria'
+
+export type StatusEmprestimo =
+  | 'em_aberto'
+  | 'atrasado'
+  | 'devolvido'
+  | 'devolvido_com_dano'
+  | 'cancelado'
+
+export type SituacaoItem = 'emprestado' | 'devolvido' | 'devolvido_com_dano'
+
+export const ROTULO_STATUS: Record<StatusEmprestimo, string> = {
+  em_aberto: 'Em aberto',
+  atrasado: 'Atrasado',
+  devolvido: 'Devolvido',
+  devolvido_com_dano: 'Devolvido com dano',
+  cancelado: 'Cancelado',
+}
+
+export const ROTULO_SITUACAO: Record<SituacaoItem, string> = {
+  emprestado: 'Com o cliente',
+  devolvido: 'Devolvida',
+  devolvido_com_dano: 'Devolvida com dano',
+}
+
+export function numeroEmprestimo(n: number): string {
+  return `EMP-${String(n).padStart(4, '0')}`
+}
+
+export interface ClienteBusca {
+  id: string
+  nome: string
+  cpf_cnpj: string | null
+  telefone: string | null
+  email: string | null
+  cidade: string | null
+  estado: string | null
+}
+
+export interface EmpresaOpcao {
+  id: string
+  codigo: number
+  nome: string
+}
+
+export interface EmAbertoPorPeca {
+  codigo_produto: number
+  quantidade_em_aberto: number
+  estoque_showroom: number
+}
+
+export interface EmprestimoResumo {
+  id: string
+  numero: number
+  empresa_nome: string
+  cliente_nome: string
+  data_emprestimo: string
+  data_prevista_devolucao: string
+  status: StatusEmprestimo
+  qtd_pecas: number
+  qtd_pecas_em_aberto: number
+  valor_total: number
+  valor_dano: number
+  criado_em: string
+}
+
+export interface ClienteSnapshot {
+  nome: string
+  razao_social: string | null
+  cpf_cnpj: string | null
+  telefone: string | null
+  email: string | null
+  endereco: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  estado: string | null
+  cep: string | null
+}
+
+export interface EmpresaTermo {
+  id: string
+  nome: string
+  razao_social: string | null
+  cnpj: string | null
+  inscricao_estadual: string | null
+  logradouro: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  estado: string | null
+  cep: string | null
+}
+
+export interface ItemEmprestimo {
+  id: string
+  codigo_produto: number
+  nome: string
+  referencia: string | null
+  quantidade: number
+  valor_unitario: number
+  situacao: SituacaoItem
+  data_devolucao: string | null
+  descricao_dano: string | null
+  valor_dano: number | null
+  devolvido_registrado_por: string | null
+}
+
+export interface EmprestimoDetalhe {
+  id: string
+  numero: number
+  status: StatusEmprestimo
+  data_emprestimo: string
+  data_prevista_devolucao: string
+  observacoes: string | null
+  cancelado_em: string | null
+  cancelado_motivo: string | null
+  criado_por: string | null
+  criado_em: string
+  cliente: ClienteSnapshot
+  empresa: EmpresaTermo
+  itens: ItemEmprestimo[]
+}
+
+export interface NovoEmprestimoInput {
+  empresaId: string
+  contatoId: string
+  dataPrevista: string
+  observacoes: string
+  itens: { codigo_produto: number; quantidade: number }[]
+}
+
+function erroCred(msg: string): Error {
+  return new Error(/senha|usu[aá]rio|28000/i.test(msg) ? 'Usuário ou senha inválidos' : msg)
+}
+
+export async function buscarCliente(c: Credencial, termo: string): Promise<ClienteBusca[]> {
+  const t = termo.trim()
+  if (t.length < 2) return []
+  const { data, error } = await db.rpc('showroom_emp_buscar_cliente', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_termo: t,
+  })
+  if (error) throw erroCred(error.message)
+  return (data ?? []) as ClienteBusca[]
+}
+
+export async function listarEmpresas(c: Credencial): Promise<EmpresaOpcao[]> {
+  const { data, error } = await db.rpc('showroom_emp_listar_empresas', {
+    p_user: c.user,
+    p_senha: c.senha,
+  })
+  if (error) throw erroCred(error.message)
+  return (data ?? []) as EmpresaOpcao[]
+}
+
+export async function emAbertoPorPeca(c: Credencial, codigos: number[]): Promise<EmAbertoPorPeca[]> {
+  if (codigos.length === 0) return []
+  const { data, error } = await db.rpc('showroom_emp_em_aberto_por_peca', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_codigos: codigos,
+  })
+  if (error) throw erroCred(error.message)
+  return (data ?? []) as EmAbertoPorPeca[]
+}
+
+export async function criarEmprestimo(
+  c: Credencial,
+  input: NovoEmprestimoInput,
+): Promise<{ id: string; numero: number }> {
+  const { data, error } = await db.rpc('showroom_emp_criar', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_empresa_id: input.empresaId,
+    p_contato_id: input.contatoId,
+    p_data_prevista: input.dataPrevista,
+    p_observacoes: input.observacoes.trim() || null,
+    p_itens: input.itens,
+  })
+  if (error) throw erroCred(error.message)
+  return data as { id: string; numero: number }
+}
+
+export async function listarEmprestimos(
+  c: Credencial,
+  status: StatusEmprestimo | null,
+  termo: string,
+): Promise<EmprestimoResumo[]> {
+  const { data, error } = await db.rpc('showroom_emp_listar', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_status: status,
+    p_termo: termo.trim() || null,
+  })
+  if (error) throw erroCred(error.message)
+  return ((data ?? []) as EmprestimoResumo[]).map((r) => ({
+    ...r,
+    valor_total: Number(r.valor_total) || 0,
+    valor_dano: Number(r.valor_dano) || 0,
+  }))
+}
+
+export async function obterEmprestimo(c: Credencial, id: string): Promise<EmprestimoDetalhe> {
+  const { data, error } = await db.rpc('showroom_emp_obter', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_id: id,
+  })
+  if (error) throw erroCred(error.message)
+  const d = data as EmprestimoDetalhe
+  return {
+    ...d,
+    itens: d.itens.map((i) => ({
+      ...i,
+      valor_unitario: Number(i.valor_unitario) || 0,
+      valor_dano: i.valor_dano == null ? null : Number(i.valor_dano),
+    })),
+  }
+}
+
+export async function registrarDevolucao(
+  c: Credencial,
+  itemId: string,
+  comDano: boolean,
+  descricaoDano?: string,
+  valorDano?: number | null,
+): Promise<void> {
+  const { error } = await db.rpc('showroom_emp_registrar_devolucao', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_item_id: itemId,
+    p_com_dano: comDano,
+    p_descricao_dano: comDano ? (descricaoDano ?? '').trim() : null,
+    p_valor_dano: comDano ? (valorDano ?? null) : null,
+  })
+  if (error) throw erroCred(error.message)
+}
+
+export async function cancelarEmprestimo(c: Credencial, id: string, motivo: string): Promise<void> {
+  const { error } = await db.rpc('showroom_emp_cancelar', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_id: id,
+    p_motivo: motivo.trim(),
+  })
+  if (error) throw erroCred(error.message)
+}

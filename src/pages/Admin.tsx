@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PPTTab } from '@/components/showroom-admin/PPTTab'
 import { FotosEstoqueTab } from '@/components/showroom-admin/FotosEstoqueTab'
+import { EmprestimosTab } from '@/components/showroom-admin/EmprestimosTab'
 import { login, type Credencial } from '@/services/curadoria'
 
 const CRED_KEY = 'showroom_admin_cred'
@@ -54,7 +55,7 @@ function LoginForm({ onOk }: { onOk: (c: Credencial) => void }) {
     <div className="mx-auto mt-16 max-w-sm">
       <h1 className="text-lg font-semibold">Curadoria do showroom</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Entre para vincular as peças do PowerPoint aos produtos ou subir fotos do estoque.
+        Entre para cuidar das peças e fotos do showroom e dos empréstimos.
       </p>
       <form className="mt-4 space-y-2" onSubmit={submit}>
         <Input
@@ -103,7 +104,7 @@ export default function Admin() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Curadoria do showroom</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Vincule peças do PowerPoint ou suba fotos direto dos produtos em estoque.
+            Vincule peças do PowerPoint, suba fotos dos produtos em estoque ou registre peças emprestadas.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={sair}>
@@ -116,12 +117,17 @@ export default function Admin() {
         <TabsList>
           <TabsTrigger value="estoque">Peças e fotos</TabsTrigger>
           <TabsTrigger value="ppt">Vincular do PPT</TabsTrigger>
+          <TabsTrigger value="emprestimos">Empréstimos</TabsTrigger>
         </TabsList>
         <TabsContent value="estoque">
           <FotosEstoqueTab cred={cred} onAuthError={sair} />
         </TabsContent>
         <TabsContent value="ppt">
           <PPTTab cred={cred} onAuthError={sair} />
+        </TabsContent>
+        {/* SPEC-219: peças emprestadas a clientes + termo para assinar */}
+        <TabsContent value="emprestimos">
+          <EmprestimosTab cred={cred} onAuthError={sair} />
         </TabsContent>
       </Tabs>
     </div>
