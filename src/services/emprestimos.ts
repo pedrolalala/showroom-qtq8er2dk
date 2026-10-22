@@ -4,8 +4,13 @@
  * funções puras, credencial do /admin explícita em toda RPC (as tabelas não têm grant;
  * dado de cliente só sai pelas RPCs showroom_emp_*).
  */
+import { supabase } from '@/lib/supabase/client'
 import { db } from '@/lib/supabase/db'
+import { compactarFoto } from '@/lib/foto-compacta'
 import type { Credencial } from './curadoria'
+
+// Bucket PRIVADO (fase 2 da SPEC-219): envio e leitura só com liberação temporária por RPC.
+const BUCKET_FOTOS = 'showroom-emprestimos'
 
 export type StatusEmprestimo =
   | 'em_aberto'
@@ -68,7 +73,22 @@ export interface EmprestimoResumo {
   qtd_pecas_em_aberto: number
   valor_total: number
   valor_dano: number
+  /** fotos de como as peças saíram da Lucenera */
+  fotos_saida: number
   criado_em: string
+}
+
+export type MomentoFoto = 'saida' | 'devolucao'
+
+export interface FotoEmprestimo {
+  id: string
+  /** nulo nas fotos de saída (são do empréstimo todo) */
+  item_id: string | null
+  momento: MomentoFoto
+  path: string
+  criado_em: string
+  /** link temporário (10 min) */
+  url: string | null
 }
 
 export interface ClienteSnapshot {
@@ -229,13 +249,78 @@ export async function obterEmprestimo(c: Credencial, id: string): Promise<Empres
   }
 }
 
+/**
+ * Libera, compacta e sobe as fotos; devolve os paths já no servidor (ainda não gravados no
+ * empréstimo — quem grava é confirmarFotosSaida ou registrarDevolucao).
+ */
+async function enviarFotos(
+  c: Credencial,
+  emprestimoId: string,
+  momento: MomentoFoto,
+  itemId: string | null,
+  arquivos: File[],
+): Promise<string[]> {
+  const blobs = await Promise.all(arquivos.map(compactarFoto))
+  const { data, error } = await db.rpc('showroom_emp_liberar_fotos', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_emprestimo_id: emprestimoId,
+    p_momento: momento,
+    p_item_id: itemId,
+    p_extensoes: blobs.map(() => 'jpg'),
+  })
+  if (error) throw erroCred(error.message)
+  const paths = data as string[]
+  for (let i = 0; i < paths.length; i++) {
+    const { error: up } = await supabase.storage
+      .from(BUCKET_FOTOS)
+      .upload(paths[i], blobs[i], { contentType: 'image/jpeg', upsert: false })
+    if (up) throw new Error(`Falha ao enviar a foto ${i + 1}: ${up.message}`)
+  }
+  return paths
+}
+
+export async function adicionarFotosSaida(c: Credencial, emprestimoId: string, arquivos: File[]): Promise<void> {
+  const paths = await enviarFotos(c, emprestimoId, 'saida', null, arquivos)
+  const { error } = await db.rpc('showroom_emp_confirmar_fotos_saida', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_emprestimo_id: emprestimoId,
+    p_paths: paths,
+  })
+  if (error) throw erroCred(error.message)
+}
+
+/** Fotos do empréstimo com link temporário (10 min) para mostrar na tela e no PDF. */
+export async function listarFotos(c: Credencial, emprestimoId: string): Promise<FotoEmprestimo[]> {
+  const { data, error } = await db.rpc('showroom_emp_liberar_leitura_fotos', {
+    p_user: c.user,
+    p_senha: c.senha,
+    p_emprestimo_id: emprestimoId,
+  })
+  if (error) throw erroCred(error.message)
+  const fotos = (data ?? []) as Omit<FotoEmprestimo, 'url'>[]
+  if (fotos.length === 0) return []
+  const { data: urls } = await supabase.storage.from(BUCKET_FOTOS).createSignedUrls(
+    fotos.map((f) => f.path),
+    600,
+  )
+  const porPath = new Map((urls ?? []).map((u) => [u.path, u.signedUrl]))
+  return fotos.map((f) => ({ ...f, url: porPath.get(f.path) ?? null }))
+}
+
+/** Devolução de uma peça: exige pelo menos 1 foto de como ela voltou. */
 export async function registrarDevolucao(
   c: Credencial,
+  emprestimoId: string,
   itemId: string,
+  fotos: File[],
   comDano: boolean,
   descricaoDano?: string,
   valorDano?: number | null,
 ): Promise<void> {
+  if (fotos.length === 0) throw new Error('Tire pelo menos 1 foto de como a peça voltou.')
+  const paths = await enviarFotos(c, emprestimoId, 'devolucao', itemId, fotos)
   const { error } = await db.rpc('showroom_emp_registrar_devolucao', {
     p_user: c.user,
     p_senha: c.senha,
@@ -243,6 +328,7 @@ export async function registrarDevolucao(
     p_com_dano: comDano,
     p_descricao_dano: comDano ? (descricaoDano ?? '').trim() : null,
     p_valor_dano: comDano ? (valorDano ?? null) : null,
+    p_fotos: paths,
   })
   if (error) throw erroCred(error.message)
 }

@@ -3,7 +3,7 @@
  * o cliente assinar e controle da devolução. Só registro — não mexe em estoque nem na vitrine.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { CameraOff, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -122,6 +122,11 @@ export function EmprestimosTab({ cred, onAuthError }: Props) {
                     </span>
                     <span className="font-medium">{e.cliente_nome}</span>
                     <StatusEmprestimoBadge status={e.status} />
+                    {e.fotos_saida === 0 && e.status !== 'cancelado' && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
+                        <CameraOff className="h-3.5 w-3.5" /> Sem foto da saída
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {e.empresa_nome} · emprestado em {fmtDia(e.data_emprestimo)} · devolver até{' '}

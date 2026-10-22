@@ -1,6 +1,6 @@
 /**
- * Detalhe do empréstimo (SPEC-219): termo em PDF, devolução peça a peça (OK ou com dano) e
- * cancelamento (só enquanto nenhuma peça foi devolvida).
+ * Detalhe do empréstimo (SPEC-219): termo em PDF, fotos de como as peças saíram, devolução peça a
+ * peça com foto de como voltou (OK ou com dano) e cancelamento (só enquanto nada foi devolvido).
  */
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -20,15 +20,19 @@ import {
 import { formatarPreco } from '@/lib/format'
 import type { Credencial } from '@/services/curadoria'
 import {
+  adicionarFotosSaida,
   cancelarEmprestimo,
+  listarFotos,
   numeroEmprestimo,
   obterEmprestimo,
   registrarDevolucao,
   ROTULO_SITUACAO,
   type EmprestimoDetalhe,
+  type FotoEmprestimo,
   type ItemEmprestimo,
 } from '@/services/emprestimos'
 import { StatusEmprestimoBadge } from './StatusEmprestimoBadge'
+import { GaleriaFotos, SeletorFotos } from './FotosEmprestimo'
 
 const fmtDia = (v: string | null) => {
   if (!v) return '-'
@@ -41,6 +45,11 @@ const brParaNumero = (t: string) => {
   return Number.isFinite(n) ? n : NaN
 }
 
+interface Devolucao {
+  item: ItemEmprestimo
+  comDano: boolean
+}
+
 interface Props {
   emprestimoId: string | null
   onOpenChange: (open: boolean) => void
@@ -51,12 +60,16 @@ interface Props {
 
 export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAuthError, onAlterado }: Props) {
   const [emp, setEmp] = useState<EmprestimoDetalhe | null>(null)
-  const [ocupado, setOcupado] = useState(false)
+  const [fotos, setFotos] = useState<FotoEmprestimo[]>([])
+  const [ocupado, setOcupado] = useState<string | null>(null)
   const [gerandoPdf, setGerandoPdf] = useState(false)
-  // devolução com dano em edição (uma peça por vez)
-  const [danoItem, setDanoItem] = useState<ItemEmprestimo | null>(null)
+  // devolução em edição (uma peça por vez)
+  const [devolucao, setDevolucao] = useState<Devolucao | null>(null)
+  const [fotosVolta, setFotosVolta] = useState<File[]>([])
   const [danoDescricao, setDanoDescricao] = useState('')
   const [danoValor, setDanoValor] = useState('')
+  // mais fotos da saída
+  const [novasSaida, setNovasSaida] = useState<File[]>([])
   const [cancelando, setCancelando] = useState(false)
   const [motivo, setMotivo] = useState('')
 
@@ -72,7 +85,9 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
   const carregar = useCallback(async () => {
     if (!emprestimoId) return
     try {
-      setEmp(await obterEmprestimo(cred, emprestimoId))
+      const [d, f] = await Promise.all([obterEmprestimo(cred, emprestimoId), listarFotos(cred, emprestimoId)])
+      setEmp(d)
+      setFotos(f)
     } catch (e) {
       tratarErro(e, 'Falha ao abrir empréstimo')
     }
@@ -80,7 +95,9 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
 
   useEffect(() => {
     setEmp(null)
-    setDanoItem(null)
+    setFotos([])
+    setDevolucao(null)
+    setNovasSaida([])
     setCancelando(false)
     setMotivo('')
     void carregar()
@@ -90,8 +107,10 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
     if (!emp) return
     setGerandoPdf(true)
     try {
+      // links novos: os da tela podem ter passado dos 10 minutos
+      const atuais = await listarFotos(cred, emp.id)
       const { baixarTermoEmprestimo } = await import('@/lib/pdf-termo-emprestimo')
-      await baixarTermoEmprestimo(emp)
+      await baixarTermoEmprestimo(emp, atuais.filter((f) => f.momento === 'saida'))
     } catch (e) {
       tratarErro(e, 'Erro ao gerar o PDF')
     } finally {
@@ -99,50 +118,58 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
     }
   }
 
-  async function devolverOk(item: ItemEmprestimo) {
-    setOcupado(true)
-    try {
-      await registrarDevolucao(cred, item.id, false)
-      toast.success(`Devolução registrada: ${item.nome}`)
-      await carregar()
-      onAlterado()
-    } catch (e) {
-      tratarErro(e, 'Erro ao registrar devolução')
-    } finally {
-      setOcupado(false)
-    }
-  }
-
-  function abrirDano(item: ItemEmprestimo) {
-    setDanoItem(item)
+  function abrirDevolucao(item: ItemEmprestimo, comDano: boolean) {
+    setDevolucao({ item, comDano })
+    setFotosVolta([])
     setDanoDescricao('')
     setDanoValor((item.valor_unitario * item.quantidade).toFixed(2).replace('.', ','))
   }
 
-  async function confirmarDano() {
-    if (!danoItem) return
-    const valor = brParaNumero(danoValor)
-    const integral = danoItem.valor_unitario * danoItem.quantidade
-    if (!danoDescricao.trim()) return toast.error('Descreva o dano.')
-    if (Number.isNaN(valor) || valor < 0 || valor > integral + 0.005)
-      return toast.error(`O valor deve ficar entre R$ 0,00 e ${formatarPreco(integral)} (valor integral).`)
-    setOcupado(true)
+  async function confirmarDevolucao() {
+    if (!devolucao || !emp) return
+    const { item, comDano } = devolucao
+    if (fotosVolta.length === 0) return toast.error('Tire pelo menos 1 foto de como a peça voltou.')
+    let valor: number | null = null
+    if (comDano) {
+      valor = brParaNumero(danoValor)
+      const integral = item.valor_unitario * item.quantidade
+      if (!danoDescricao.trim()) return toast.error('Descreva o dano.')
+      if (Number.isNaN(valor) || valor < 0 || valor > integral + 0.005)
+        return toast.error(`O valor deve ficar entre R$ 0,00 e ${formatarPreco(integral)} (valor integral).`)
+    }
+    setOcupado('Enviando fotos e registrando…')
     try {
-      await registrarDevolucao(cred, danoItem.id, true, danoDescricao, valor)
-      toast.success(`Devolução com dano registrada: ${danoItem.nome}`)
-      setDanoItem(null)
+      await registrarDevolucao(cred, emp.id, item.id, fotosVolta, comDano, danoDescricao, valor)
+      toast.success(`${comDano ? 'Devolução com dano' : 'Devolução'} registrada: ${item.nome}`)
+      setDevolucao(null)
       await carregar()
       onAlterado()
     } catch (e) {
       tratarErro(e, 'Erro ao registrar devolução')
     } finally {
-      setOcupado(false)
+      setOcupado(null)
+    }
+  }
+
+  async function enviarMaisSaida() {
+    if (!emp || novasSaida.length === 0) return
+    setOcupado('Enviando fotos…')
+    try {
+      await adicionarFotosSaida(cred, emp.id, novasSaida)
+      toast.success('Fotos da saída adicionadas')
+      setNovasSaida([])
+      await carregar()
+      onAlterado()
+    } catch (e) {
+      tratarErro(e, 'Erro ao enviar fotos')
+    } finally {
+      setOcupado(null)
     }
   }
 
   async function confirmarCancelamento() {
     if (!emp || !motivo.trim()) return
-    setOcupado(true)
+    setOcupado('Cancelando…')
     try {
       await cancelarEmprestimo(cred, emp.id, motivo)
       toast.success(`Empréstimo ${numeroEmprestimo(emp.numero)} cancelado`)
@@ -152,13 +179,14 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
     } catch (e) {
       tratarErro(e, 'Erro ao cancelar')
     } finally {
-      setOcupado(false)
+      setOcupado(null)
     }
   }
 
   const cancelado = !!emp?.cancelado_em
   const podeCancelar = !!emp && !cancelado && emp.itens.every((i) => i.situacao === 'emprestado')
   const total = emp ? emp.itens.reduce((a, i) => a + i.valor_unitario * i.quantidade, 0) : 0
+  const fotosSaida = fotos.filter((f) => f.momento === 'saida')
 
   return (
     <Dialog open={!!emprestimoId} onOpenChange={(v) => !ocupado && onOpenChange(v)}>
@@ -191,80 +219,152 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
               )}
             </div>
 
+            <div className="space-y-2 rounded border border-border px-3 py-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Como as peças saíram ({fotosSaida.length} foto{fotosSaida.length === 1 ? '' : 's'})
+              </h3>
+              <GaleriaFotos fotos={fotosSaida} />
+              {fotosSaida.length === 0 && (
+                <p className="text-xs font-medium text-destructive">
+                  Sem foto da saída. Tire as fotos antes de entregar as peças ao cliente.
+                </p>
+              )}
+              {!cancelado && (
+                <div className="space-y-2">
+                  <SeletorFotos
+                    arquivos={novasSaida}
+                    onChange={setNovasSaida}
+                    rotulo="Adicionar fotos da saída"
+                    disabled={!!ocupado}
+                  />
+                  {novasSaida.length > 0 && (
+                    <Button type="button" size="sm" disabled={!!ocupado} onClick={enviarMaisSaida}>
+                      Enviar {novasSaida.length} foto{novasSaida.length === 1 ? '' : 's'}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
             <ul className="space-y-2">
-              {emp.itens.map((i) => (
-                <li key={i.id} className="rounded border border-border px-3 py-2">
-                  <div className="flex flex-wrap items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <span className="font-mono text-xs text-muted-foreground">{i.codigo_produto}</span>{' '}
-                      <span className="font-medium">{i.nome}</span>
-                      <div className="text-xs text-muted-foreground">
-                        {i.quantidade} × {formatarPreco(i.valor_unitario)} ={' '}
-                        {formatarPreco(i.quantidade * i.valor_unitario)} · {ROTULO_SITUACAO[i.situacao]}
-                        {i.data_devolucao && ` em ${fmtDia(i.data_devolucao)}`}
+              {emp.itens.map((i) => {
+                const fotosItem = fotos.filter((f) => f.momento === 'devolucao' && f.item_id === i.id)
+                const editando = devolucao?.item.id === i.id
+                return (
+                  <li key={i.id} className="rounded border border-border px-3 py-2">
+                    <div className="flex flex-wrap items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-mono text-xs text-muted-foreground">{i.codigo_produto}</span>{' '}
+                        <span className="font-medium">{i.nome}</span>
+                        <div className="text-xs text-muted-foreground">
+                          {i.quantidade} × {formatarPreco(i.valor_unitario)} ={' '}
+                          {formatarPreco(i.quantidade * i.valor_unitario)} · {ROTULO_SITUACAO[i.situacao]}
+                          {i.data_devolucao && ` em ${fmtDia(i.data_devolucao)}`}
+                        </div>
+                        {i.situacao === 'devolvido_com_dano' && (
+                          <p className="mt-0.5 text-xs text-destructive">
+                            Dano: {i.descricao_dano} — cobrar {formatarPreco(i.valor_dano ?? 0)}
+                          </p>
+                        )}
                       </div>
-                      {i.situacao === 'devolvido_com_dano' && (
-                        <p className="mt-0.5 text-xs text-destructive">
-                          Dano: {i.descricao_dano} — cobrar {formatarPreco(i.valor_dano ?? 0)}
-                        </p>
+                      {i.situacao === 'emprestado' && !cancelado && !editando && (
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={!!ocupado}
+                            onClick={() => abrirDevolucao(i, false)}
+                          >
+                            Devolvida OK
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="text-destructive hover:text-destructive"
+                            disabled={!!ocupado}
+                            onClick={() => abrirDevolucao(i, true)}
+                          >
+                            Com dano
+                          </Button>
+                        </div>
                       )}
                     </div>
-                    {i.situacao === 'emprestado' && !cancelado && (
-                      <div className="flex shrink-0 gap-1">
-                        <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => devolverOk(i)}>
-                          Devolvida OK
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="text-destructive hover:text-destructive"
-                          disabled={ocupado}
-                          onClick={() => abrirDano(i)}
-                        >
-                          Com dano
-                        </Button>
+
+                    {fotosItem.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs text-muted-foreground">Como voltou:</p>
+                        <GaleriaFotos fotos={fotosItem} />
                       </div>
                     )}
-                  </div>
 
-                  {danoItem?.id === i.id && (
-                    <div className="mt-2 space-y-2 rounded bg-secondary/50 p-2">
-                      <div className="space-y-1">
-                        <Label htmlFor="dano-desc">O que aconteceu com a peça?</Label>
-                        <Textarea
-                          id="dano-desc"
-                          rows={2}
-                          value={danoDescricao}
-                          onChange={(e) => setDanoDescricao(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="dano-valor">Valor a cobrar (R$)</Label>
-                        <Input
-                          id="dano-valor"
-                          value={danoValor}
-                          onChange={(e) => setDanoValor(e.target.value)}
-                          inputMode="decimal"
-                          className="h-8 w-40"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Valor integral: {formatarPreco(i.valor_unitario * i.quantidade)}. Só diminua se nem todas
-                          as unidades voltaram danificadas.
+                    {editando && devolucao && (
+                      <div className="mt-2 space-y-2 rounded bg-secondary/50 p-2">
+                        <p className="text-xs font-semibold">
+                          {devolucao.comDano ? 'Devolução com dano' : 'Devolução sem dano'}
                         </p>
+                        <div className="space-y-1">
+                          <Label>Fotos de como a peça voltou (obrigatório)</Label>
+                          <SeletorFotos
+                            arquivos={fotosVolta}
+                            onChange={setFotosVolta}
+                            rotulo="Tirar / escolher fotos"
+                            disabled={!!ocupado}
+                          />
+                        </div>
+                        {devolucao.comDano && (
+                          <>
+                            <div className="space-y-1">
+                              <Label htmlFor="dano-desc">O que aconteceu com a peça?</Label>
+                              <Textarea
+                                id="dano-desc"
+                                rows={2}
+                                value={danoDescricao}
+                                onChange={(e) => setDanoDescricao(e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="dano-valor">Valor a cobrar (R$)</Label>
+                              <Input
+                                id="dano-valor"
+                                value={danoValor}
+                                onChange={(e) => setDanoValor(e.target.value)}
+                                inputMode="decimal"
+                                className="h-8 w-40"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Valor integral: {formatarPreco(i.valor_unitario * i.quantidade)}. Só diminua se nem
+                                todas as unidades voltaram danificadas.
+                              </p>
+                            </div>
+                          </>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={devolucao.comDano ? 'destructive' : 'default'}
+                            disabled={!!ocupado || fotosVolta.length === 0}
+                            onClick={confirmarDevolucao}
+                          >
+                            {ocupado ?? (devolucao.comDano ? 'Registrar devolução com dano' : 'Registrar devolução')}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={!!ocupado}
+                            onClick={() => setDevolucao(null)}
+                          >
+                            Voltar
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button type="button" size="sm" variant="destructive" disabled={ocupado} onClick={confirmarDano}>
-                          Registrar devolução com dano
-                        </Button>
-                        <Button type="button" size="sm" variant="ghost" disabled={ocupado} onClick={() => setDanoItem(null)}>
-                          Voltar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              ))}
+                    )}
+                  </li>
+                )
+              })}
             </ul>
 
             <div className="rounded bg-secondary/50 px-3 py-2">
@@ -280,12 +380,12 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
                     type="button"
                     size="sm"
                     variant="destructive"
-                    disabled={ocupado || !motivo.trim()}
+                    disabled={!!ocupado || !motivo.trim()}
                     onClick={confirmarCancelamento}
                   >
                     Confirmar cancelamento
                   </Button>
-                  <Button type="button" size="sm" variant="ghost" disabled={ocupado} onClick={() => setCancelando(false)}>
+                  <Button type="button" size="sm" variant="ghost" disabled={!!ocupado} onClick={() => setCancelando(false)}>
                     Voltar
                   </Button>
                 </div>
@@ -300,7 +400,7 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
               type="button"
               variant="ghost"
               className="text-destructive hover:text-destructive"
-              disabled={ocupado}
+              disabled={!!ocupado}
               onClick={() => setCancelando(true)}
             >
               Cancelar empréstimo

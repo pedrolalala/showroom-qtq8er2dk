@@ -158,5 +158,21 @@ em aberto pode passar do estoque do showroom — a tela só avisa.
   (SECURITY DEFINER, credencial do /admin, EXECUTE só para `anon` — revogado de `authenticated`):
   `buscar_cliente`, `listar_empresas`, `em_aberto_por_peca`, `criar`, `listar`, `obter`,
   `registrar_devolucao`, `cancelar` (só se nenhuma peça foi devolvida).
+  (Migration 232 mudou `registrar_devolucao` — agora exige `p_fotos` — e `listar` — ganhou `fotos_saida`.)
 - `contatos` tem dado pessoal: nunca ler direto daqui — só pela `showroom_emp_buscar_cliente`
   (filtra `tipo = 'cliente'`, `ativo`, `canonical_id IS NULL`, limite 20).
+
+### Fotos de saída e de volta (SPEC-219 fase 2, migration 232, aplicada 22/10/2026)
+
+- Bucket **privado** `showroom-emprestimos` (5 MB, jpeg/png/webp; a tela sempre manda JPEG ≤1600 px,
+  `src/lib/foto-compacta.ts`). Path: `<emprestimo_id>/<saida|devolucao>/<uuid>.jpg`.
+- **`showroom_emprestimo_fotos`** — `emprestimo_id`, `item_id` (nulo na saída; peça na devolução),
+  `momento` (`saida` | `devolucao`), `path` único, `criado_por`, `criado_em`.
+- **`showroom_emp_foto_grants`** — liberação temporária por path (`pode_inserir` = envio pendente,
+  15 min; leitura = 10 min). Mesmo mecanismo da `showroom_upload_grants` (o /admin é anon).
+  Policies de `storage.objects` só para `anon`: INSERT e SELECT nesse bucket quando
+  `showroom_emp_foto_permitida(name, …)`. Sem UPDATE/DELETE: foto registrada não é trocada nem apagada.
+- Fluxo: `showroom_emp_liberar_fotos` → upload → `showroom_emp_confirmar_fotos_saida` (saída) ou
+  `showroom_emp_registrar_devolucao(..., p_fotos)` (volta — **exige ≥1 foto**). Ver:
+  `showroom_emp_liberar_leitura_fotos` + `createSignedUrls(600)`.
+- O termo em PDF leva as fotos da saída como anexo (rubrica do cliente) e a cláusula 1 cita as fotos.

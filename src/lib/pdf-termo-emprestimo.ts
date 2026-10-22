@@ -4,7 +4,7 @@
 // Gerado no navegador (pdf-lib, carregada só no clique).
 import type { PDFDocument as TPDFDocument } from 'pdf-lib'
 import logoImg from '@/assets/lucenera-vertical-d5520.png'
-import { numeroEmprestimo, type EmprestimoDetalhe } from '@/services/emprestimos'
+import { numeroEmprestimo, type EmprestimoDetalhe, type FotoEmprestimo } from '@/services/emprestimos'
 
 const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 function dia(v: string | null | undefined) {
@@ -13,10 +13,12 @@ function dia(v: string | null | undefined) {
   return `${d}/${m}/${a}`
 }
 
-// Texto validado na SPEC-219 ("Texto do termo"). [EMPRESA] = nome da empresa escolhida.
-function clausulas(empresa: string): string[] {
+// Texto da SPEC-219 ("Texto do termo"). [EMPRESA] = nome da empresa escolhida.
+function clausulas(empresa: string, comFotos: boolean): string[] {
   return [
-    '1. O CLIENTE recebe as peças listadas acima, a título de empréstimo gratuito, e declara que as recebeu em perfeito estado de conservação e funcionamento.',
+    `1. O CLIENTE recebe as peças listadas acima, a título de empréstimo gratuito, e declara que as recebeu em perfeito estado de conservação e funcionamento${
+      comFotos ? ', conforme as fotos anexas a este termo, que dele fazem parte' : ''
+    }.`,
     '2. O CLIENTE se compromete a devolver as peças até a data prevista de devolução, no mesmo estado em que as recebeu, com embalagens e acessórios.',
     '3. Em caso de dano, perda, furto ou extravio causado pelo CLIENTE ou ocorrido enquanto as peças estiverem sob sua responsabilidade, o CLIENTE pagará o valor integral da peça indicado neste termo.',
     `4. As peças continuam sendo propriedade da ${empresa} e não podem ser vendidas, cedidas ou emprestadas a terceiros.`,
@@ -24,9 +26,11 @@ function clausulas(empresa: string): string[] {
   ]
 }
 
+/** fotosSaida: JPEGs de como as peças saíram (viram anexo, com rubrica do cliente). */
 export async function gerarPdfTermoEmprestimo(
   emp: EmprestimoDetalhe,
   logo: string | null,
+  fotosSaida: Uint8Array[] = [],
 ): Promise<Uint8Array> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const pdf: TPDFDocument = await PDFDocument.create()
@@ -226,7 +230,7 @@ export async function gerarPdfTermoEmprestimo(
   if (y < 120) y = novaPagina()
   page.drawText('CONDIÇÕES DO EMPRÉSTIMO', { x: 40, y, size: 9, font: bold })
   y -= 14
-  for (const c of clausulas(nomeEmpresa)) {
+  for (const c of clausulas(nomeEmpresa, fotosSaida.length > 0)) {
     for (const l of quebrar(c, font, 8.5, width - 80)) {
       if (y < 40) y = novaPagina()
       page.drawText(l, { x: 40, y, size: 8.5, font })
@@ -249,6 +253,40 @@ export async function gerarPdfTermoEmprestimo(
   }
   assinatura(40, `CLIENTE: ${cli.nome || ''}`, cli.cpf_cnpj ? `CPF/CNPJ: ${cli.cpf_cnpj}` : null)
   assinatura(40 + larg + 40, nomeEmpresa, 'Responsável')
+
+  // ---------- Anexo: fotos de como as peças saíram (4 por página, 2x2) ----------
+  const imagens: Awaited<ReturnType<typeof pdf.embedJpg>>[] = []
+  for (const bytes of fotosSaida) {
+    try {
+      imagens.push(await pdf.embedJpg(bytes))
+    } catch {
+      /* foto ilegível: pula */
+    }
+  }
+  const celW = (width - 80 - 20) / 2
+  const celH = 300
+  for (let k = 0; k < imagens.length; k++) {
+    if (k % 4 === 0) {
+      y = novaPagina() + 15
+      const t = `ANEXO — FOTOS DE COMO AS PEÇAS SAÍRAM (${numeroEmprestimo(emp.numero)})`
+      page.drawText(limpo(t), { x: 40, y, size: 10, font: bold })
+      page.drawText(
+        limpo(`Data do empréstimo: ${dia(emp.data_emprestimo)}. Este anexo faz parte do termo de empréstimo.`),
+        { x: 40, y: y - 13, size: 8, font, color: cinza },
+      )
+      // rubrica do cliente no rodapé de cada página do anexo
+      page.drawLine({ start: { x: width - 220, y: 45 }, end: { x: width - 40, y: 45 }, thickness: 1 })
+      page.drawText('Rubrica do cliente', { x: width - 220, y: 34, size: 8, font })
+    }
+    const img = imagens[k]
+    const pos = k % 4
+    const cx = 40 + (pos % 2) * (celW + 20)
+    const topoCel = y - 30 - Math.floor(pos / 2) * (celH + 20)
+    const escala = Math.min(celW / img.width, celH / img.height)
+    const w = img.width * escala
+    const h = img.height * escala
+    page.drawImage(img, { x: cx + (celW - w) / 2, y: topoCel - h, width: w, height: h })
+  }
 
   // numeração "1 de N" no canto de cada página
   const paginas = pdf.getPages()
@@ -293,8 +331,24 @@ function nomeArquivo(emp: EmprestimoDetalhe) {
   return `Termo_Emprestimo_${numeroEmprestimo(emp.numero)}${cliente ? `_${cliente}` : ''}.pdf`
 }
 
-export async function baixarTermoEmprestimo(emp: EmprestimoDetalhe) {
-  const bytes = await gerarPdfTermoEmprestimo(emp, await logoRecortada())
+async function baixarFoto(f: FotoEmprestimo): Promise<Uint8Array | null> {
+  if (!f.url) return null
+  try {
+    const r = await fetch(f.url)
+    if (!r.ok) return null
+    return new Uint8Array(await r.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+export async function baixarTermoEmprestimo(emp: EmprestimoDetalhe, fotosSaida: FotoEmprestimo[] = []) {
+  const [logo, fotos] = await Promise.all([logoRecortada(), Promise.all(fotosSaida.map(baixarFoto))])
+  const bytes = await gerarPdfTermoEmprestimo(
+    emp,
+    logo,
+    fotos.filter((f): f is Uint8Array => !!f),
+  )
   const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

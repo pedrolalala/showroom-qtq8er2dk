@@ -1,5 +1,6 @@
 /**
- * Novo empréstimo (SPEC-219): empresa, cliente do cadastro, peças + quantidade e prazo.
+ * Novo empréstimo (SPEC-219): empresa, cliente do cadastro, peças + quantidade, prazo e fotos de
+ * como as peças saíram (obrigatório pelo menos 1 — sobem logo depois de gravar o empréstimo).
  * Avisa (sem bloquear) quando a quantidade emprestada em aberto passa do estoque do showroom.
  * SPEC-216: Enter só pula de campo; salvar só no clique.
  */
@@ -20,7 +21,9 @@ import {
 } from '@/components/ui/dialog'
 import { formatarPreco } from '@/lib/format'
 import { buscarProduto, type Credencial, type ProdutoBusca } from '@/services/curadoria'
+import { SeletorFotos } from './FotosEmprestimo'
 import {
+  adicionarFotosSaida,
   buscarCliente,
   criarEmprestimo,
   emAbertoPorPeca,
@@ -66,7 +69,8 @@ export function NovoEmprestimoDialog({ open, onOpenChange, cred, onAuthError, on
   const [emAberto, setEmAberto] = useState<Map<number, EmAbertoPorPeca>>(new Map())
   const [dataPrevista, setDataPrevista] = useState(hojeMais(7))
   const [observacoes, setObservacoes] = useState('')
-  const [salvando, setSalvando] = useState(false)
+  const [fotos, setFotos] = useState<File[]>([])
+  const [salvando, setSalvando] = useState<string | null>(null)
 
   const tratarErro = (e: unknown, padrao: string) => {
     const msg = e instanceof Error ? e.message : padrao
@@ -84,6 +88,7 @@ export function NovoEmprestimoDialog({ open, onOpenChange, cred, onAuthError, on
     setResultadosPeca([])
     setDataPrevista(hojeMais(7))
     setObservacoes('')
+    setFotos([])
     listarEmpresas(cred)
       .then((lista) => {
         setEmpresas(lista)
@@ -155,11 +160,13 @@ export function NovoEmprestimoDialog({ open, onOpenChange, cred, onAuthError, on
 
   const total = pecas.reduce((acc, p) => acc + p.valor_venda * p.quantidade, 0)
   const hoje = hojeMais(0)
-  const podeSalvar = !!empresaId && !!cliente && pecas.length > 0 && !!dataPrevista && dataPrevista >= hoje
+  const podeSalvar =
+    !!empresaId && !!cliente && pecas.length > 0 && !!dataPrevista && dataPrevista >= hoje && fotos.length > 0
 
   async function salvar() {
     if (!cliente || !podeSalvar) return
-    setSalvando(true)
+    setSalvando('Registrando…')
+    let criado: { id: string; numero: number } | null = null
     try {
       const r = await criarEmprestimo(cred, {
         empresaId,
@@ -168,13 +175,26 @@ export function NovoEmprestimoDialog({ open, onOpenChange, cred, onAuthError, on
         observacoes,
         itens: pecas.map((p) => ({ codigo_produto: p.codigo_produto, quantidade: p.quantidade })),
       })
+      criado = r
+      setSalvando(`Enviando ${fotos.length} foto${fotos.length === 1 ? '' : 's'}…`)
+      await adicionarFotosSaida(cred, r.id, fotos)
       toast.success(`Empréstimo ${numeroEmprestimo(r.numero)} registrado — baixe o termo para o cliente assinar`)
       onOpenChange(false)
       onCriado(r.id)
     } catch (e) {
-      tratarErro(e, 'Erro ao registrar empréstimo')
+      if (criado) {
+        // o empréstimo ficou gravado; as fotos podem ser adicionadas de novo no detalhe
+        toast.error(
+          `Empréstimo ${numeroEmprestimo(criado.numero)} registrado, mas as fotos não subiram: ${
+            e instanceof Error ? e.message : 'erro'
+          }. Adicione as fotos da saída no empréstimo.`,
+          { duration: 10000 },
+        )
+        onOpenChange(false)
+        onCriado(criado.id)
+      } else tratarErro(e, 'Erro ao registrar empréstimo')
     } finally {
-      setSalvando(false)
+      setSalvando(null)
     }
   }
 
@@ -384,17 +404,22 @@ export function NovoEmprestimoDialog({ open, onOpenChange, cred, onAuthError, on
             />
           </div>
 
+          <div className="space-y-1">
+            <Label>Fotos de como as peças estão saindo (obrigatório)</Label>
+            <SeletorFotos arquivos={fotos} onChange={setFotos} rotulo="Tirar / escolher fotos" disabled={!!salvando} />
+          </div>
+
           <div className="rounded bg-secondary/50 px-3 py-2 text-sm">
             Valor total das peças: <strong>{formatarPreco(total)}</strong>
           </div>
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={salvando}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={!!salvando}>
             Cancelar
           </Button>
-          <Button type="button" onClick={salvar} disabled={salvando || !podeSalvar}>
-            {salvando ? 'Registrando…' : 'Registrar empréstimo'}
+          <Button type="button" onClick={salvar} disabled={!!salvando || !podeSalvar}>
+            {salvando ?? 'Registrar empréstimo'}
           </Button>
         </DialogFooter>
       </DialogContent>
