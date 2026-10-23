@@ -17,15 +17,20 @@ export type StatusEmprestimo =
   | 'atrasado'
   | 'devolvido'
   | 'devolvido_com_dano'
+  | 'virou_venda'
+  | 'parcial'
   | 'cancelado'
 
-export type SituacaoItem = 'emprestado' | 'devolvido' | 'devolvido_com_dano'
+// SPEC-223: o mesmo empréstimo também é feito pelo Orçamentos e pode virar venda lá.
+export type SituacaoItem = 'emprestado' | 'devolvido' | 'devolvido_com_dano' | 'convertido_venda'
 
 export const ROTULO_STATUS: Record<StatusEmprestimo, string> = {
   em_aberto: 'Em aberto',
   atrasado: 'Atrasado',
   devolvido: 'Devolvido',
   devolvido_com_dano: 'Devolvido com dano',
+  virou_venda: 'Virou venda',
+  parcial: 'Parcial: venda + devolução',
   cancelado: 'Cancelado',
 }
 
@@ -33,6 +38,7 @@ export const ROTULO_SITUACAO: Record<SituacaoItem, string> = {
   emprestado: 'Com o cliente',
   devolvido: 'Devolvida',
   devolvido_com_dano: 'Devolvida com dano',
+  convertido_venda: 'Virou venda',
 }
 
 export function numeroEmprestimo(n: number): string {
@@ -76,6 +82,9 @@ export interface EmprestimoResumo {
   /** fotos de como as peças saíram da Lucenera */
   fotos_saida: number
   criado_em: string
+  /** SPEC-223: feito no /admin (showroom) ou pelo orçamento de empréstimo */
+  origem?: 'showroom' | 'orcamento'
+  orcamento_numero?: string | null
 }
 
 export type MomentoFoto = 'saida' | 'devolucao'
@@ -133,6 +142,8 @@ export interface ItemEmprestimo {
   descricao_dano: string | null
   valor_dano: number | null
   devolvido_registrado_por: string | null
+  /** SPEC-223: orçamento de venda para onde a peça foi */
+  orcamento_venda_numero?: string | null
 }
 
 export interface EmprestimoDetalhe {

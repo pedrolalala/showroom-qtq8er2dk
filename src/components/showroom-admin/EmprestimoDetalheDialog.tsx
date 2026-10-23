@@ -259,6 +259,8 @@ export function EmprestimoDetalheDialog({ emprestimoId, onOpenChange, cred, onAu
                         <div className="text-xs text-muted-foreground">
                           {i.quantidade} × {formatarPreco(i.valor_unitario)} ={' '}
                           {formatarPreco(i.quantidade * i.valor_unitario)} · {ROTULO_SITUACAO[i.situacao]}
+                          {i.situacao === 'convertido_venda' &&
+                            ` (orçamento ${i.orcamento_venda_numero ?? ''} no Orçamentos)`}
                           {i.data_devolucao && ` em ${fmtDia(i.data_devolucao)}`}
                         </div>
                         {i.situacao === 'devolvido_com_dano' && (

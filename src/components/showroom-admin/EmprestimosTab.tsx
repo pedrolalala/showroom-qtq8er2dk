@@ -24,6 +24,7 @@ const FILTROS: { valor: StatusEmprestimo | null; rotulo: string }[] = [
   { valor: 'em_aberto', rotulo: 'Em aberto' },
   { valor: 'atrasado', rotulo: 'Atrasados' },
   { valor: 'devolvido_com_dano', rotulo: 'Com dano' },
+  { valor: 'virou_venda', rotulo: 'Viraram venda' },
   { valor: null, rotulo: 'Todos' },
 ]
 
@@ -121,6 +122,11 @@ export function EmprestimosTab({ cred, onAuthError }: Props) {
                       {numeroEmprestimo(e.numero)}
                     </span>
                     <span className="font-medium">{e.cliente_nome}</span>
+                    {e.origem === 'orcamento' && (
+                      <span className="text-xs text-muted-foreground">
+                        (orçamento {e.orcamento_numero ?? ''})
+                      </span>
+                    )}
                     <StatusEmprestimoBadge status={e.status} />
                     {e.fotos_saida === 0 && e.status !== 'cancelado' && (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">

@@ -6,6 +6,8 @@ const CORES: Record<StatusEmprestimo, string> = {
   atrasado: 'bg-destructive text-destructive-foreground hover:bg-destructive',
   devolvido: 'bg-emerald-600 text-white hover:bg-emerald-600',
   devolvido_com_dano: 'bg-orange-700 text-white hover:bg-orange-700',
+  virou_venda: 'bg-blue-600 text-white hover:bg-blue-600',
+  parcial: 'bg-indigo-600 text-white hover:bg-indigo-600',
   cancelado: 'bg-muted text-muted-foreground hover:bg-muted',
 }
 

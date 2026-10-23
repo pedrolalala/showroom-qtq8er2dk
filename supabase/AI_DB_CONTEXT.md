@@ -176,3 +176,13 @@ em aberto pode passar do estoque do showroom — a tela só avisa.
   `showroom_emp_registrar_devolucao(..., p_fotos)` (volta — **exige ≥1 foto**). Ver:
   `showroom_emp_liberar_leitura_fotos` + `createSignedUrls(600)`.
 - O termo em PDF leva as fotos da saída como anexo (rubrica do cliente) e a cláusula 1 cita as fotos.
+
+## Empréstimo também pelo Orçamentos (SPEC-223, migration 237, aplicada 23/10/2026)
+
+- O mesmo empréstimo (`showroom_emprestimos`) pode nascer de um orçamento Outros → EMPRESTIMO: `origem = 'orcamento'`,
+  `orcamento_id`, `projeto_id`. O Orçamentos usa RPCs `emprestimo_*` (só `authenticated`); o /admin continua nas
+  `showroom_emp_*` (só `anon` + credencial). As duas usam as mesmas funções internas (`showroom_emp_detalhe`,
+  `_listar_int`, `_devolver_item`, `_separar_item`, `_liberar_fotos_int`, `_liberar_leitura_int`) — mudar a regra lá.
+- Item com `situacao = 'convertido_venda'` virou venda no Orçamentos (`orcamento_venda_id`). Status calculado ganhou
+  `virou_venda` e `parcial`. Cancelar pelo /admin um empréstimo de orçamento também cancela o orçamento.
+- `showroom_emp_listar` devolve também `origem`, `orcamento_id`, `orcamento_numero`.
