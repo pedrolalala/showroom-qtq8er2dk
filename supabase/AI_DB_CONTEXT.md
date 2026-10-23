@@ -177,7 +177,7 @@ em aberto pode passar do estoque do showroom — a tela só avisa.
   `showroom_emp_liberar_leitura_fotos` + `createSignedUrls(600)`.
 - O termo em PDF leva as fotos da saída como anexo (rubrica do cliente) e a cláusula 1 cita as fotos.
 
-## Empréstimo também pelo Orçamentos (SPEC-223, migration 237, aplicada 23/10/2026)
+## Empréstimo também pelo Orçamentos (SPEC-223, migration 238, aplicada 23/10/2026)
 
 - O mesmo empréstimo (`showroom_emprestimos`) pode nascer de um orçamento Outros → EMPRESTIMO: `origem = 'orcamento'`,
   `orcamento_id`, `projeto_id`. O Orçamentos usa RPCs `emprestimo_*` (só `authenticated`); o /admin continua nas
